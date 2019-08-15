@@ -20927,6 +20927,8 @@ in
 
   mars = callPackage ../games/mars { };
 
+  kam-remake-server = callPackage ../games/kam-remake-server {};
+
   megaglest = callPackage ../games/megaglest {};
 
   minecraft = callPackage ../games/minecraft { };

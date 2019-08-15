@@ -292,6 +292,7 @@
   ./services/games/factorio.nix
   ./services/games/minecraft-server.nix
   ./services/games/minetest-server.nix
+  ./services/games/kam-remake-server.nix
   ./services/games/terraria.nix
   ./services/hardware/acpid.nix
   ./services/hardware/actkbd.nix
