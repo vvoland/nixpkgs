@@ -22,6 +22,7 @@ let
       stdenv,
       fetchFromGitHub,
       buildGoModule,
+      buildPackages,
       makeBinaryWrapper,
       installShellFiles,
       pkg-config,
@@ -65,6 +66,7 @@ let
     }:
     let
       systemdLibs' = systemdLibs.override { withCompression = true; };
+      withManpages = lib.versionAtLeast version "29.0.0";
 
       docker-meta = {
         license = lib.licenses.asl20;
@@ -145,6 +147,49 @@ let
         hash = mobyHash;
       };
 
+      cli-src = fetchFromGitHub {
+        owner = "docker";
+        repo = "cli";
+        # Cannot use `tag` since upstream forgot to tag release, see
+        # https://github.com/docker/cli/issues/5789
+        rev = cliRev;
+        hash = cliHash;
+      };
+
+      # The Go manpage generator must run on the build platform.
+      cli-manpages = buildPackages.buildGoModule {
+        pname = "docker-manpages";
+        inherit version;
+        src = cli-src;
+
+        vendorHash = null;
+
+        nativeBuildInputs = [
+          go-md2man
+          installShellFiles
+        ];
+
+        postPatch = ''
+          patchShebangs scripts
+        '';
+
+        buildPhase = ''
+          runHook preBuild
+
+          make DISABLE_WARN_OUTSIDE_CONTAINER=1 manpages
+
+          runHook postBuild
+        '';
+
+        doCheck = false;
+
+        installPhase = ''
+          runHook preInstall
+          installManPage man/man*/*
+          runHook postInstall
+        '';
+      };
+
       extraMobyPath = lib.optionals stdenv.hostPlatform.isLinux (
         lib.makeBinPath [
           iproute2
@@ -209,6 +254,7 @@ let
             export DOCKER_GITCOMMIT="${cliRev}"
             export VERSION="${version}"
             ./hack/make.sh dynbinary
+            ${lib.optionalString withManpages "make -C man GO_MD2MAN=go-md2man"}
 
             runHook postBuild
           '';
@@ -218,6 +264,7 @@ let
 
             install -Dm755 ./bundles/dynbinary-daemon/dockerd $out/libexec/docker/dockerd
             install -Dm755 ./bundles/dynbinary-daemon/docker-proxy $out/libexec/docker/docker-proxy
+            ${lib.optionalString withManpages "installManPage man/man*/*"}
 
             makeWrapper $out/libexec/docker/dockerd $out/bin/dockerd \
               --prefix PATH : "$out/libexec/docker${
@@ -274,14 +321,7 @@ let
         pname = "docker";
         inherit version;
 
-        src = fetchFromGitHub {
-          owner = "docker";
-          repo = "cli";
-          # Cannot use `tag` since upstream forgot to tag release, see
-          # https://github.com/docker/cli/issues/5789
-          rev = cliRev;
-          hash = cliHash;
-        };
+        src = cli-src;
 
         patches = [
           (
@@ -340,6 +380,8 @@ let
 
           install -Dm755 ./build/docker $out/libexec/docker/docker
 
+          ${lib.optionalString withManpages "installManPage ${cli-manpages}/share/man/man*/*"}
+
           makeWrapper $out/libexec/docker/docker $out/bin/docker \
             --prefix PATH : "$out/libexec/docker" \
             --prefix DOCKER_CLI_PLUGIN_DIRS : "${dockerCliPluginsDirs}"
@@ -348,6 +390,7 @@ let
           # symlink docker daemon to docker cli derivation
           ln -s ${moby}/bin/dockerd $out/bin/dockerd
           ln -s ${moby}/bin/dockerd-rootless $out/bin/dockerd-rootless
+          ${lib.optionalString withManpages "installManPage ${moby}/share/man/man*/*"}
 
           # systemd
           mkdir -p $out/etc/systemd/system
